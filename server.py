@@ -56,7 +56,9 @@ class ClientConnection:
 
     # queue message
 
-    # send all messages
+    def sendall(self):
+        # send all messages
+        pass
 
     # command handlers & runners
     
@@ -73,14 +75,60 @@ class Server:
         self.channels = {} # name -> channel
         self.clients = {} # socket -> client
         self.nicks = {} # nick -> client
+        self.socket = None
 
     def init_socket(self):
-        # bind and shit
-        pass
+        self.socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        self.socket.setblocking(0)
+        self.socket.bind(("::", self.port))
+        self.socket.listen(5)
 
     def run(self):
-        # select loop
-        pass
+        while True:
+            r_list = [client.socket for client in self.clients.values()]
+            r_list.append(self.socket)
+            w_list = [client.socket for client in self.clients.values() if len(client.write_queue) > 0]
+
+            readable, writable, exceptional = select.select(
+                r_list, 
+                w_list, 
+                []
+            )
+
+            for sock in readable:
+                if sock == self.socket:
+                    # New connection
+                    print("[LOG] Incoming connection")
+                    client_sock, _ = sock.accept()
+                    new_client = ClientConnection(client_sock, self)
+                    self.clients[client_sock] = new_client
+
+                else:
+                    # Data received from active connection
+                    print("[LOG] Data received")
+                    data = sock.recv(1024)
+
+                    if data:
+                        # Connection active
+                        pass
+
+                    else:
+                        # TODO: Ensure channels announce user leaving
+                        connection = self.clients[sock]
+
+                        for channel in connection.channels.values():
+                            channel.remove_user(connection)
+                        
+                        if connection.nickname in self.nicks:
+                            del self.nicks[connection.nickname]
+                        
+                        del self.clients[sock]
+                        sock.close()
+
+            for sock in writable:
+                if sock in self.clients:
+                    self.clients[sock].sendall()
+
 
     # add_client
     # add_nick
@@ -91,87 +139,7 @@ class Server:
     # add client to channel
 
 
-# Create a TCP/IP socket
-server = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-server.setblocking(0)
-
-# Bind the socket to the port
-server_address = ('::1', 10000)
-print("Starting server")
-server.bind(server_address)
-
-# Listen for incoming connections
-server.listen(5)
-
-# Sockets from which we expect to read
-inputs = [ server ]
-
-# Sockets to which we expect to write
-outputs = [ ]
-
-# Outgoing message queues (socket:Queue)
-message_queues = {}
-
-while inputs:
-
-    print("Waiting on activity")
-    readable, writable, exceptional = select.select(inputs, outputs, inputs)
-
-     # Handle inputs
-    for s in readable:
-
-        if s is server:
-            # A "readable" server socket is ready to accept a connection
-            connection, client_address = s.accept()
-            print("New connection")
-            connection.setblocking(0)
-            inputs.append(connection)
-
-            # Give the connection a queue for data we want to send
-            message_queues[connection] = Queue.Queue()
-
-        else:
-            data = s.recv(1024)
-            if data:
-                # A readable client socket has data
-                print("receiving", data, s.getpeername())
-                message_queues[s].put(data)
-                # Add output channel for response
-                if s not in outputs:
-                    outputs.append(s)
-
-            else:
-                # Interpret empty result as closed connection
-                print('closing', client_address, 'after reading no data')
-                # Stop listening for input on the connection
-                if s in outputs:
-                    outputs.remove(s)
-                inputs.remove(s)
-                s.close()
-
-                # Remove message queue
-                del message_queues[s]
-
-     # Handle outputs
-    for s in writable:
-        try:
-            next_msg = message_queues[s].get_nowait()
-        except Queue.Empty:
-            # No messages waiting so stop checking for writability.
-            print('output queue for', s.getpeername(), 'is empty')
-            outputs.remove(s)
-        else:
-            print("sending", next_msg, s.getpeername())
-            s.send(next_msg)
-
-    # Handle "exceptional conditions"
-    for s in exceptional:
-        print('handling exceptional condition for', s.getpeername())
-        # Stop listening for input on the connection
-        inputs.remove(s)
-        if s in outputs:
-            outputs.remove(s)
-        s.close()
-
-        # Remove message queue
-        del message_queues[s]
+if __name__ == "__main__":
+    server = Server("LudServer", 6667, "This is a cool message")
+    server.init_socket()
+    server.run()
