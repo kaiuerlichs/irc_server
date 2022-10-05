@@ -53,6 +53,10 @@ class ClientConnection:
     # send command
     def send_command(self):
         pass
+    
+    # queue message
+
+    # send all messages
 
     # command handlers
     def command_handler(self):
@@ -61,6 +65,7 @@ class ClientConnection:
     # calc_prefix
     def prefix_calc(self):
         pass
+
 
 class Server:
     def __init__(self, name, port, motd):
