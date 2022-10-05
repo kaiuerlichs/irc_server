@@ -85,7 +85,7 @@ class Server:
     # change nick
     # remove client from channel
     # remove channel
-    # add client to channe;
+    # add client to channel
 
 
 # Create a TCP/IP socket
