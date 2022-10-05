@@ -53,14 +53,12 @@ class ClientConnection:
     # send command
     def send_command(self):
         pass
-    
+
     # queue message
 
     # send all messages
 
     # command handlers
-    def command_handler(self):
-        pass
     
     # calc_prefix
     def prefix_calc(self):
