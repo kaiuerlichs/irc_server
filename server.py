@@ -58,7 +58,7 @@ class ClientConnection:
 
     # send all messages
 
-    # command handlers
+    # command handlers & runners
     
     # calc_prefix
     def prefix_calc(self):
