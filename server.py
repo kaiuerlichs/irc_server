@@ -19,20 +19,20 @@ class Channel:
         self.topic = ""
 
     # add user
-    def add_user(self):
-        pass
+    def add_user(self, user):
+        self.users.add(user)
         
     # remove user
-    def remove_user(self):
-        pass
+    def remove_user(self, user):
+        self.users.remove(user)
 
     # get topic
     def get_topic(self):
-        pass
+        return self.topic
 
     # set topic
-    def set_topic(self):
-        pass
+    def set_topic(self, topic):
+        self.topic = topic
         
 
 class ClientConnection:
@@ -59,9 +59,67 @@ class ClientConnection:
     # send all messages
 
     # command handlers & runners
+    def run001(self, nickname, username, host):
+        cmd = self.command_format("001", "Welcome to the IRC!:" + nickname + "!" + username + "@" + host)
+        self.send_command(cmd)
+
+    def run002(self, server):
+        cmd = self.command_format("002", "Your host is " + self.server.name + " running version <version>") #store version somewhere???
+        self.send_command(cmd)
+
+    def run003(self):
+        cmd = self.command_format("003", "This server was created <date>") #store date created
+        self.send_command(cmd)
+
+    def run004(self, server):
+        cmd = self.command_format("004", self.server.name + " <version> <user_modes> <chan_modes>") #whatis this info????
+        self.send_command(cmd)
+
+    def run251(self, server):
+        cmd = self.command_format("251", ":There are " + len(self.server.clients) + " users and <integer> services on <integer> servers") #whats invisible
+        self.send_command(cmd)
+
+    def run422(self):
+        cmd = self.command_format("422", ":MOTD file is missing")
+        self.send_command(cmd)
+
+    def run375(self, server):
+        cmd = self.command_format("375", ":- " + self.server.name + " Message of the day -")
+        self.send_command(cmd)
+
+    def run372(self):
+        cmd = self.command_format("372", ":- <text>") # ADD MSG OF DAY HERE
+        self.send_command(cmd)
+
+    def run376(self):
+        cmd = self.command_format("376", ":End of MOTD command") 
+        self.send_command(cmd)
+
+    def run331(self, channels):
+        cmd = self.command_format("331", self.channels[name] + ":No topic is set")
+        self.send_command(cmd)
+
+    def run332(self, name):
+        cmd = self.command_format(self.channels[name] + " :" + self.channels[name].topic)
+        self.send_command(cmd)
+    
+    def run353(self, client, symbol, channel, prefix, nick):
+        cmd = self.command_format("353", "") 
+        self.send_command(cmd)
+
+    def run366(self):
+        cmd = self.command_format("366", self.channels[name] + " :End of NAMES list") 
+        self.send_command(cmd)
+
+    def runJOIN(self, channel, key):
+        cmd = self.command_format("JOIN", "") # HELP ME 
+        self.send_command(cmd)
+
+    
     
     # calc_prefix
     def prefix_calc(self):
+        #whats a prefix meant to look like
         pass
 
 
