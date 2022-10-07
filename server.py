@@ -89,7 +89,7 @@ class Server:
             r_list.append(self.socket)
             w_list = [client.socket for client in self.clients.values() if len(client.write_queue) > 0]
 
-            readable, writable, exceptional = select.select(
+            readable, writable, _ = select.select(
                 r_list, 
                 w_list, 
                 []
