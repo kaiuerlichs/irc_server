@@ -5,8 +5,10 @@ answer the most common IRC commands. It can handle multiple clients and channels
 """
 
 
+from http.client import TOO_MANY_REQUESTS
 import select
 import socket
+import time
 import utils.logger as logger
 
 
@@ -55,6 +57,10 @@ class ClientConnection:
         self.write_queue = []
         self.encoding = "utf-8"
 
+        self.alive = time.time()
+        self.ping = time.time()
+        self.ping_ack = True
+
 
     # UTILITIES AND SOCKET INTERFACES
     def prefix(self):
@@ -82,6 +88,8 @@ class ClientConnection:
         Args:
             data: The data received from the client
         """
+
+        self.alive = time.time()
 
         transmissions = data.decode(self.encoding).split("\r\n")
         for t in transmissions:
@@ -116,21 +124,50 @@ class ClientConnection:
                     self.on_who(params)
                 case "PING":
                     self.on_ping(params)
+                case "PRIVMSG":
+                    self.on_privmsg(params)
+                case "PONG":
+                    self.on_pong()
+                case "QUIT":
+                    self.on_quit(params)
                 case _:
                     self.run421(command)
 
 
+    def remove_connection(self, message):
+        # Announce leaving to users
+        self.announce_quit(message)
+        
+        # Remove from channel lists
+        for channel in self.channels.values():
+            channel.remove_user(self.nickname)
+
+            if len(channel.users) == 0:
+                self.server.remove_channel(channel.name)
+        
+        # Remove from server nick and clients list
+        if self.nickname in self.server.nicks:
+            del self.server.nicks[self.nickname]
+
+        if self.socket in self.server.clients:
+            del self.server.clients[self.socket]
+
+        # Shutdown and close socket
+        self.socket.shutdown(socket.SHUT_RDWR)
+        self.socket.close()
+            
+
     # COMMAND RUNNERS
     def run001(self): # RPL_WELCOME
-        cmd = self.command_format(self.server.prefix(), "001", self.nickname + " Welcome to the IRC!:" + self.nickname + "!" + self.username + "@" + self.host)
+        cmd = self.command_format(self.server.prefix(), "001", self.nickname + " :Welcome to the IRC!:" + self.nickname + "!" + self.username + "@" + self.host)
         self.queue_command(cmd)
 
     def run002(self): #RPL_YOURHOST
-        cmd = self.command_format(self.server.prefix(),"002", self.nickname + " Your host is " + self.server.name + " running version " + self.server.version)
+        cmd = self.command_format(self.server.prefix(),"002", self.nickname + " :Your host is " + self.server.name + " running version " + self.server.version)
         self.queue_command(cmd)
 
     def run003(self): #RPL_CREATED
-        cmd = self.command_format(self.server.prefix(), "003", self.nickname + " This server was created sometime.")
+        cmd = self.command_format(self.server.prefix(), "003", self.nickname + " :This server was created sometime.")
         self.queue_command(cmd)
 
     def run004(self): #RPL_MYINFO
@@ -166,7 +203,7 @@ class ClientConnection:
         self.queue_command(cmd)
     
     def run353(self, name): #RPL_NAMREPLY
-        cmd = self.command_format(self.server.prefix(),"353", self.nickname + " = " + "#" + name + " : " + " ".join(self.channels[name].users))
+        cmd = self.command_format(self.server.prefix(),"353", self.nickname + " = " + "#" + name + " :" + " ".join(self.channels[name].users))
         self.queue_command(cmd)
 
     def run366(self, name): #RPL_ENDOFNAMES
@@ -179,6 +216,14 @@ class ClientConnection:
         # Send join command to all clients in the channel
         for client in self.channels[channel].users:
             self.server.nicks[client].queue_command(cmd) 
+
+    def announce_quit(self, message):
+        cmd = self.command_format(self.prefix(), "QUIT", ":" + message)
+
+        for channel in self.channels.values():
+            for nick in channel.users:
+                if nick != self.nickname and nick in self.server.nicks:
+                    self.server.nicks[nick].queue_command(cmd)
 
     def run315(self): #RPL_ENDOFWHO
         cmd = self.command_format(self.server.prefix(), "315", self.nickname + " :End of WHO list")
@@ -196,22 +241,96 @@ class ClientConnection:
     def runPONG(self, params):
         cmd = self.command_format(self.server.prefix(), "PONG", params)
         self.queue_command(cmd)
+    
+    def run411(self): #ERR_NORECIPIENT
+        cmd = self.command_format(self.server.prefix(), "411", ":No recipient given")
+        self.queue_command(cmd)
 
+    def run412(self): #ERR_NOTEXTTOSEND
+        cmd = self.command_format(self.server.prefix(), "412", ":No text to send")
+        self.queue_command(cmd)
+    
+    def run431(self): #ERR_NONICKNAMEGIVEN
+        cmd = self.command_format(self.server.prefix(), "431", ":No nickname given")
+        self.queue_command(cmd)
+
+    def run432(self): #ERR_ERRONEUSNICKNAME
+        cmd = self.command_format(self.server.prefix(), "432", self.nickname + ":Erroneus nickname")
+        self.queue_command(cmd)
+
+    def run433(self): #ERR_NICKNAMEINUSE
+        cmd = self.command_format(self.server.prefix(), "433", self.nickname + ":Nickname is already in use")
+        self.queue_command(cmd)
+
+    def run461(self): #ERR_NEEDMOREPARAMS
+        cmd = self.command_format(self.server.prefix(),"461", ":Not enough parameters")
+        self.queue_command(cmd)
+        
+    def run462(self): #ERR ALREADYREGISTERED
+        cmd = self.command_format(self.server.prefix(), "462", ":Unauthorized command (already registered)")
+        self.queue_command(cmd)
+
+    def runPING(self):
+        self.ping = time.time()
+        self.ping_ack = False
+
+        cmd = self.command_format(self.server.prefix(), "PING", "Aliveness check")
+        self.queue_command(cmd)
 
     # COMMAND HANDLERS
     def on_nick(self, params):
+        params = params.strip()
+        invalid = [" ", ",", "!", "?", "@", "*", "."]
+        starting = ["$", ":", "#", "&"]
+
+        if params == "":
+            self.run431()
+            return
+
+        if params in self.server.nicks:
+            self.run433()
+            return
+
+        # check nick format
+        if len(params) > 9:
+            self.run432()
+            return
+
+        for i in starting:
+            if params[0] == i:
+                self.run432()
+                return
+            else:
+                continue
+
+        for i in invalid:
+            if i in params:
+                self.run432()
+                return
+            else:
+                continue
+
         self.nickname = params
         self.server.nicks[self.nickname] = self
 
     def on_user(self, params):
         tokens = params.split(" ", 3)
+        
+        if len(tokens) < 3:
+            self.run461()
+            return
+            
+        if self.username != "":
+            self.run462() 
+            return
+            
         self.username = tokens[0]
         self.realname = tokens[3][1:]
 
         self.run001()
         self.run002()
         self.run003()
-        self.run003()
+        self.run004()
         self.run251()
 
         # If there is no motd, run error commands, otherwise display motd
@@ -249,6 +368,47 @@ class ClientConnection:
 
     def on_ping(self, params):
         self.runPONG(params)
+
+    def on_pong(self):
+        self.ping_ack = True
+
+    def on_privmsg(self, params):
+        try:
+            contents = params.split(' ',1)
+        except:
+            self.run461()
+            return
+
+        target = contents[0]
+        if target == "":
+            self.run412() #NOTEXTTOSEND
+            return
+
+        message = contents[1][1:]
+
+        if target[0]=='#':
+            self.sendChannelMsg(target, message)
+        elif target in self.server.nicks:
+            self.sendUserMsg(target, message)
+        else:
+            self.run411() #NORECIPIENT
+        
+    def on_quit(self, params):
+        self.remove_connection(params[1:])
+    
+    def sendChannelMsg(self, target, msg):
+        cmd = self.command_format(self.prefix(), "PRIVMSG", target + " :" + msg)
+        
+        for nick in self.channels[target[1:]].users:
+            if nick == self.nickname:
+                continue
+
+            client = self.server.nicks[nick]
+            client.queue_command(cmd)   
+
+    def sendUserMsg(self, target, msg):
+        cmd = self.command_format(self.prefix() , "PRIVMSG ", target + " :" + msg)
+        self.server.nicks[target].queue_command(cmd)
 
 
 class Server:
@@ -295,7 +455,8 @@ class Server:
             readable, writable, _ = select.select(
                 r_list, 
                 w_list, 
-                []
+                [],
+                20
             )
 
             for sock in readable:
@@ -315,23 +476,23 @@ class Server:
 
                     else:
                         # No incoming data -> client dead
-
-                        # TODO: Ensure channels announce user leaving
-                        connection = self.clients[sock]
-
-                        for channel in connection.channels.values():
-                            self.remove_client_from_channel(connection, channel)
-                        
-                        if connection.nickname in self.nicks:
-                            del self.nicks[connection.nickname]
-                        
-                        del self.clients[sock]
-                        sock.close()
+                        self.clients[sock].remove_connection("Client connection closed.")
 
             for sock in writable:
                 # Tell writable clients to send all transmissions
                 if sock in self.clients:
                     self.clients[sock].sendall()
+
+            now = time.time()
+
+            alive_check = [client for client in self.clients.values() if (now - client.alive) > 90 and client.ping_ack == True]
+            dead_connection = [client for client in self.clients.values() if (now - client.ping) > 15 and client.ping_ack == False]
+
+            for client in alive_check:
+                client.runPING()
+
+            for client in dead_connection:
+                client.remove_connection()
 
     def prefix(self):
         """ Generates the server's prefix """
@@ -353,19 +514,16 @@ class Server:
             self.channels[channel_name] = Channel(channel_name)
             self.channels[channel_name].add_user(client_name)
 
-    def remove_client_from_channel(self, client, channel):
-        """ Removes a client from a channel list
-        
-        Args:
-            client: The client to remove
-            channel: The channel to remove the client from
-        """
-
-        # TODO: Check if channel is empty and del
-        channel.remove_user(client.nickname)
+    def remove_channel(self, channel):
+        del self.channels[channel]
+        return
 
 
 if __name__ == "__main__":
-    server = Server("LudServer", 6667, "This is a cool message")
-    server.init_socket()
-    server.run()
+    try:
+        server = Server("LudServer", 6667, "This is a cool message")
+        server.init_socket()
+        server.run()
+    except KeyboardInterrupt:
+        server.socket.shutdown(socket.SHUT_RDWR)
+        server.socket.close()
