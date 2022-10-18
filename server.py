@@ -128,6 +128,8 @@ class ClientConnection:
                     self.on_privmsg(params)
                 case "PONG":
                     self.on_pong()
+                case "PART":
+                    self.on_part(params)
                 case "QUIT":
                     self.on_quit(params)
                 case _:
@@ -224,6 +226,12 @@ class ClientConnection:
             for nick in channel.users:
                 if nick != self.nickname and nick in self.server.nicks:
                     self.server.nicks[nick].queue_command(cmd)
+                    
+    def announce_part(self, channel):
+        cmd = self.command_format(self.prefix(), "PART", channel)
+
+        for nick in self.channels[channel[1:]].users:
+            self.server.nicks[nick].queue_command(cmd)
 
     def run315(self): #RPL_ENDOFWHO
         cmd = self.command_format(self.server.prefix(), "315", self.nickname + " :End of WHO list")
@@ -234,20 +242,24 @@ class ClientConnection:
         cmd = self.command_format(self.server.prefix(), "352", self.nickname + " #" + channel + " " + client.username + " " + client.host + " " +  self.server.hostname + " " + client.nickname + " H :0 " + client.realname)
         self.queue_command(cmd)
 
-    def run421(self, command): #RPL_UNKNOWNCOMMAND
-        cmd = self.command_format(self.server.prefix(), "421", command + " :Unknown command")
-        self.queue_command(cmd)
-
     def runPONG(self, params):
         cmd = self.command_format(self.server.prefix(), "PONG", params)
         self.queue_command(cmd)
     
+    def run403(self, params): #ERR_NOSUCHCHANNEL
+        cmd = self.command_format(self.server.prefix(), "403", params + " :No such channel")
+        self.queue_command(cmd)
+
     def run411(self): #ERR_NORECIPIENT
         cmd = self.command_format(self.server.prefix(), "411", ":No recipient given")
         self.queue_command(cmd)
 
     def run412(self): #ERR_NOTEXTTOSEND
         cmd = self.command_format(self.server.prefix(), "412", ":No text to send")
+        self.queue_command(cmd)
+
+    def run421(self, command): #RPL_UNKNOWNCOMMAND
+        cmd = self.command_format(self.server.prefix(), "421", command + " :Unknown command")
         self.queue_command(cmd)
     
     def run431(self): #ERR_NONICKNAMEGIVEN
@@ -260,6 +272,10 @@ class ClientConnection:
 
     def run433(self): #ERR_NICKNAMEINUSE
         cmd = self.command_format(self.server.prefix(), "433", self.nickname + ":Nickname is already in use")
+        self.queue_command(cmd)
+    
+    def run442(self, params): #ERR_NOTONCHANNEL
+        cmd = self.command_format(self.server.prefix(), "442", params + " :You're not on that channel")
         self.queue_command(cmd)
 
     def run461(self): #ERR_NEEDMOREPARAMS
@@ -395,6 +411,27 @@ class ClientConnection:
         
     def on_quit(self, params):
         self.remove_connection(params[1:])
+
+    def on_part(self, params):
+        if params == "":
+            self.run461()
+            return
+
+        channels_to_part = params.split(":")[0].strip().split(",")
+        
+        for channel in channels_to_part:
+            if channel[1:] not in self.server.channels:
+                self.run403(channel)
+                return
+
+            if channel[1:] not in self.channels:
+                self.run442(channel)
+                continue
+
+            self.announce_part(channel)
+
+            self.channels[channel[1:]].remove_user(self.nickname)
+            del self.channels[channel[1:]]
     
     def sendChannelMsg(self, target, msg):
         cmd = self.command_format(self.prefix(), "PRIVMSG", target + " :" + msg)
@@ -441,12 +478,13 @@ class Server:
             self.socket.listen(5)
             self.hostname = self.socket.getsockname()[0]
         except:
-            print("Oopsee woopsee, something went wrong. The server couldn't be connected to the socket.")
+            print("Oopsie woopsie, something went wrong. The server couldn't be connected to the socket.")
             quit()
 
     def run(self):
         """ Runs the server's select loop to check for activity """
-
+        
+        logger.log_msg("Listening on port " + str(self.port) + ".")
         while True:
             r_list = [client.socket for client in self.clients.values()]
             r_list.append(self.socket)
