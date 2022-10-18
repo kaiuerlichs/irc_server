@@ -197,7 +197,7 @@ class ClientConnection:
         self.queue_command(cmd)
 
     def run331(self, name): #RPL_NOTOPIC
-        cmd = self.command_format(self.server.prefix(), "331", self.nickname + " #" + name + ":No topic is set")
+        cmd = self.command_format(self.server.prefix(), "331", self.nickname + " #" + name + " :No topic is set")
         self.queue_command(cmd)
 
     def run332(self, name): #RPL_TOPIC
@@ -358,7 +358,12 @@ class ClientConnection:
             self.run422()
 
     def on_join(self, params):
-        channel = params.split(" ")[0][1:]
+        if params.split(" ")[0][0]=="#":
+            channel = params.split(" ")[0][1:]
+        else:
+            channel = params.split(" ")[0]
+        
+        logger.log_msg(channel)
 
         # Add client to channel object
         self.server.add_client_to_channel(self.nickname, channel)
@@ -391,6 +396,7 @@ class ClientConnection:
     def on_privmsg(self, params):
         try:
             contents = params.split(' ',1)
+            message= contents[1][1:]
         except:
             self.run461()
             return
@@ -400,7 +406,7 @@ class ClientConnection:
             self.run412() #NOTEXTTOSEND
             return
 
-        message = contents[1][1:]
+        
 
         if target[0]=='#':
             self.sendChannelMsg(target, message)
