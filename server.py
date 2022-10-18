@@ -5,7 +5,6 @@ answer the most common IRC commands. It can handle multiple clients and channels
 """
 
 
-from http.client import TOO_MANY_REQUESTS
 import select
 import socket
 import time
@@ -219,6 +218,17 @@ class ClientConnection:
         for client in self.channels[channel].users:
             self.server.nicks[client].queue_command(cmd) 
 
+    def runPING(self):
+        self.ping = time.time()
+        self.ping_ack = False
+
+        cmd = self.command_format(self.server.prefix(), "PING", "Aliveness check")
+        self.queue_command(cmd)
+
+    def runPONG(self, params):
+        cmd = self.command_format(self.server.prefix(), "PONG", params)
+        self.queue_command(cmd)
+
     def announce_quit(self, message):
         cmd = self.command_format(self.prefix(), "QUIT", ":" + message)
 
@@ -241,57 +251,57 @@ class ClientConnection:
         client = self.server.nicks[nick]
         cmd = self.command_format(self.server.prefix(), "352", self.nickname + " #" + channel + " " + client.username + " " + client.host + " " +  self.server.hostname + " " + client.nickname + " H :0 " + client.realname)
         self.queue_command(cmd)
-
-    def runPONG(self, params):
-        cmd = self.command_format(self.server.prefix(), "PONG", params)
-        self.queue_command(cmd)
     
     def run403(self, params): #ERR_NOSUCHCHANNEL
+        logger.log_msg("(403) Client tried to join non-existent channel.")
         cmd = self.command_format(self.server.prefix(), "403", params + " :No such channel")
         self.queue_command(cmd)
 
     def run411(self): #ERR_NORECIPIENT
+        logger.log_msg("(411) Client sent a message without recipient.")
         cmd = self.command_format(self.server.prefix(), "411", ":No recipient given")
         self.queue_command(cmd)
 
     def run412(self): #ERR_NOTEXTTOSEND
+        logger.log_msg("(412) Client sent a message without text.")
         cmd = self.command_format(self.server.prefix(), "412", ":No text to send")
         self.queue_command(cmd)
 
     def run421(self, command): #RPL_UNKNOWNCOMMAND
+        logger.log_msg("(421) Client sent unknown or unimplemented command.")
         cmd = self.command_format(self.server.prefix(), "421", command + " :Unknown command")
         self.queue_command(cmd)
     
     def run431(self): #ERR_NONICKNAMEGIVEN
+        logger.log_msg("(431) Client sent NICK command without nickname.")
         cmd = self.command_format(self.server.prefix(), "431", ":No nickname given")
         self.queue_command(cmd)
 
     def run432(self): #ERR_ERRONEUSNICKNAME
+        logger.log_msg("(432) Client sent NICK command with erroneuous nickname.")
         cmd = self.command_format(self.server.prefix(), "432", self.nickname + ":Erroneus nickname")
         self.queue_command(cmd)
 
     def run433(self): #ERR_NICKNAMEINUSE
+        logger.log_msg("(433) Client sent NICK command with nickname already in use.")
         cmd = self.command_format(self.server.prefix(), "433", self.nickname + ":Nickname is already in use")
         self.queue_command(cmd)
     
     def run442(self, params): #ERR_NOTONCHANNEL
+        logger.log_msg("(442) Client tried to perform action on a channel they are not on.")
         cmd = self.command_format(self.server.prefix(), "442", params + " :You're not on that channel")
         self.queue_command(cmd)
 
     def run461(self): #ERR_NEEDMOREPARAMS
+        logger.log_msg("(461) Client command is missing parameters.")
         cmd = self.command_format(self.server.prefix(),"461", ":Not enough parameters")
         self.queue_command(cmd)
         
     def run462(self): #ERR ALREADYREGISTERED
+        logger.log_msg("(462) Registered client attempted registration.")
         cmd = self.command_format(self.server.prefix(), "462", ":Unauthorized command (already registered)")
         self.queue_command(cmd)
 
-    def runPING(self):
-        self.ping = time.time()
-        self.ping_ack = False
-
-        cmd = self.command_format(self.server.prefix(), "PING", "Aliveness check")
-        self.queue_command(cmd)
 
     # COMMAND HANDLERS
     def on_nick(self, params):
@@ -362,8 +372,6 @@ class ClientConnection:
             channel = params.split(" ")[0][1:]
         else:
             channel = params.split(" ")[0]
-        
-        logger.log_msg(channel)
 
         # Add client to channel object
         self.server.add_client_to_channel(self.nickname, channel)
@@ -510,6 +518,8 @@ class Server:
                     new_client = ClientConnection(client_sock, self)
                     self.clients[client_sock] = new_client
 
+                    logger.log_msg("Accepted new connection from " + new_client.host + " at port " + str(new_client.port) + ".")
+
                 else:
                     # Receive data from existing connection
                     data = sock.recv(1024)
@@ -520,6 +530,7 @@ class Server:
 
                     else:
                         # No incoming data -> client dead
+                        logger.log_msg("Connection to " + self.host + " at port " + str(self.port) + " has been removed.")
                         self.clients[sock].remove_connection("Client connection closed.")
 
             for sock in writable:
@@ -536,6 +547,7 @@ class Server:
                 client.runPING()
 
             for client in dead_connection:
+                logger.log_msg("Connection to " + client.host + " at port " + str(client.port) + " has been removed due to inactivity.")
                 client.remove_connection()
 
     def prefix(self):
