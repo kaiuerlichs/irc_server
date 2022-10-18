@@ -406,7 +406,7 @@ class ClientConnection:
             contents = params.split(' ',1)
             message= contents[1][1:]
         except:
-            self.run461()
+            self.run411()
             return
 
         target = contents[0]
