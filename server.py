@@ -118,6 +118,8 @@ class ClientConnection:
                     self.on_join(params)
                 case "NICK":
                     self.on_nick(params)
+                case "TOPIC":
+                    self.changeTopic(params)
                 case "USER":
                     self.on_user(params)
                 case "WHO":
@@ -380,6 +382,22 @@ class ClientConnection:
 
         self.run353(channel)
         self.run366(channel)
+
+    def changeTopic(self, params):
+        try:
+            contents = params.split(' ',1)
+            message= contents[1][1:]
+        except:
+            self.run461()
+            return
+
+        if params.split(" ")[0][0]=="#":
+            channel = params.split(" ")[0][1:]
+        else:
+            channel = params.split(" ")[0]
+
+        self.channels[channel].set_topic(message)
+        
 
     def on_who(self, params):
         channel = params[1:]
