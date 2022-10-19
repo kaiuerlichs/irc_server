@@ -50,6 +50,7 @@ class ClientConnection:
         self.nickname = ""
         self.realname = ""
         self.username = ""
+        self.registered = False
         self.host, self.port, _, _ = socket.getpeername()
         self.write_queue = []
         self.encoding = "utf-8"
@@ -234,7 +235,7 @@ class ClientConnection:
     
     def run401(self, params): #ERR_NOSUCHNICK
         logger.log_msg("(401) No such nick.")
-        cmd = self.command_format(self.server.prefix(), "401", params + " :No such nick/channel")
+        cmd = self.command_format(self.server.prefix(), "401", params + " :No such nick")
         self.queue_command(cmd)
 
     def run403(self, params): #ERR_NOSUCHCHANNEL
@@ -361,6 +362,12 @@ class ClientConnection:
         self.nickname = params
         self.server.nicks[self.nickname] = self
 
+        if self.nickname != "" and self.username != "":
+            self.registered = True
+
+        if self.registered:
+            self.on_registered()
+
 
     def on_user(self, params):
         tokens = params.split(" ", 3)
@@ -375,6 +382,14 @@ class ClientConnection:
             
         self.username = tokens[0]
         self.realname = tokens[3][1:]
+
+        if self.nickname != "" and self.username != "":
+            self.registered = True
+
+        if self.registered:
+            self.on_registered()
+
+    def on_registered(self):
         self.run001()
         self.run002()
         self.run003()
@@ -389,8 +404,10 @@ class ClientConnection:
         else:
             self.run422()
 
-
     def on_join(self, params):
+        if not self.registered:
+            return
+
         if params == "":
             self.run461()
             return
@@ -418,6 +435,9 @@ class ClientConnection:
 
 
     def on_who(self, params):
+        if not self.registered:
+            return
+        
         channel = params[1:]
         for i in self.server.channels[channel].users:
             self.run352(i, channel)
@@ -425,46 +445,61 @@ class ClientConnection:
 
 
     def on_ping(self, params):
+        if not self.registered:
+            return
+
         if params == "" or params == " ":
             self.run461()
             return 
         self.runPONG(params)
 
+
     def on_pong(self):
         self.ping_ack = True
 
+
     def on_privmsg(self, params):
-        if (params.strip() == " ")<1:
-            self.run461() #NOTENOUGHPARAMS
+        if not self.registered:
             return
+
         try:
-            contents = params.split(' ',1)
-            message = contents[1][1:]
+            contents = params.split(' :',1)
+            message = contents[1]
         except:
             self.run412() #NOTEXTTOSEND
             return
 
         target = contents[0]
         if target == "":
-            self.run411() #NORECIPIENT
+            self.run411() # NORECIPIENT
             return
+        
         elif target[0]=='#':
-            self.sendChannelMsg(target, message)
+            if target[1:] in self.server.channels:
+                self.sendChannelMsg(target, message)
+            else:
+                self.run403(target)
+
         elif target in self.server.nicks:
             self.sendUserMsg(target, message)
+
         else:
-            self.run411() #NORECIPIENT
+            self.run401(target) # NOSUCHNICK
         
+
     def on_quit(self, params):
         self.remove_connection(params[1:])
 
+
     def on_part(self, params):
+        if not self.registered:
+            return
+
         if params == "":
             self.run461()
             return
 
         channels_to_part = params.split(":")[0].strip().split(",")
-        
         for channel in channels_to_part:
             if channel[1:] not in self.server.channels:
                 self.run403(channel)
@@ -478,14 +513,15 @@ class ClientConnection:
             self.channels[channel[1:]].remove_user(self.nickname)
             del self.channels[channel[1:]]
     
+
     def sendChannelMsg(self, target, msg):
         cmd = self.command_format(self.prefix(), "PRIVMSG", target + " :" + msg)
-        
         for nick in self.channels[target[1:]].users:
             if nick == self.nickname:
                 continue
             client = self.server.nicks[nick]
             client.queue_command(cmd)   
+
 
     def sendUserMsg(self, target, msg):
         if target not in self.server.nicks:
@@ -497,13 +533,11 @@ class ClientConnection:
 
 class Server:
     """ Server class handles the socket instantiation and select loop for the IRC server
-
     Attributes:
         name: The name of the server
         port: The port on which the server should listen
         motd: A short message of the day for the server
     """
-
     def __init__(self, name, port, motd):
         self.name = name
         self.port = port
@@ -515,11 +549,12 @@ class Server:
         self.hostname = ""
         self.version = "LudServer1.0"
 
+
     def init_socket(self):
         """ Initialises the socket for the server """
-
         try:
             self.socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.socket.setblocking(0)
             self.socket.bind(("::", self.port))
             self.socket.listen(5)
@@ -528,51 +563,43 @@ class Server:
             logger.log_msg("Oopsie woopsie, something went wrong. The server couldn't be connected to the socket.")
             quit()
 
+
     def run(self):
         """ Runs the server's select loop to check for activity """
-        
         logger.log_msg("Listening on port " + str(self.port) + ".")
         while True:
             r_list = [client.socket for client in self.clients.values()]
             r_list.append(self.socket)
             w_list = [client.socket for client in self.clients.values() if len(client.write_queue) > 0]
-
             readable, writable, _ = select.select(
                 r_list, 
                 w_list, 
                 [],
                 20
             )
-
             for sock in readable:
                 if sock == self.socket:
                     # Accept new connection and set up ClientConnection object
                     client_sock, _ = sock.accept()
                     new_client = ClientConnection(client_sock, self)
                     self.clients[client_sock] = new_client
-
                     logger.log_msg("Accepted new connection from " + new_client.host + " at port " + str(new_client.port) + ".")
-
                 else:
                     # Receive data from existing connection
                     data = sock.recv(1024)
-
                     if data:
                         # Handle incoming data
                         self.clients[sock].handle_incoming(data)
-
                     else:
                         # No incoming data -> client dead
                         logger.log_msg("Connection to " + self.host + " at port " + str(self.port) + " has been removed.")
                         self.clients[sock].remove_connection("Client connection closed.")
-
             for sock in writable:
                 # Tell writable clients to send all transmissions
                 if sock in self.clients:
                     self.clients[sock].sendall()
 
             now = time.time()
-
             alive_check = [client for client in self.clients.values() if (now - client.alive) > 90 and client.ping_ack == True]
             dead_connection = [client for client in self.clients.values() if (now - client.ping) > 15 and client.ping_ack == False]
 
@@ -583,19 +610,18 @@ class Server:
                 logger.log_msg("Connection to " + client.host + " at port " + str(client.port) + " has been removed due to inactivity.")
                 client.remove_connection()
 
+
     def prefix(self):
         """ Generates the server's prefix """
-
         return ":" + self.name
+
 
     def add_client_to_channel(self, client_name, channel_name):
         """ Adds a new client into the channel list 
-        
         Args:
             client_name: The client's nickname
             channel_name: The channel's nickname
         """
-
         if channel_name in self.channels.keys():
             self.channels[channel_name].add_user(client_name)
 
@@ -603,11 +629,14 @@ class Server:
             self.channels[channel_name] = Channel(channel_name)
             self.channels[channel_name].add_user(client_name)
 
+
     def remove_channel(self, channel):
         del self.channels[channel]
         return
 
 
+
+#main
 if __name__ == "__main__":
     try:
         server = Server("LudServer", 6667, "This is a cool message")
