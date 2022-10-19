@@ -643,5 +643,8 @@ if __name__ == "__main__":
         server.init_socket()
         server.run()
     except KeyboardInterrupt:
+        logger.log_msg("Server shut down.")
         server.socket.shutdown(socket.SHUT_RDWR)
         server.socket.close()
+    except:
+        logger.log_msg("An unexpected error has caused the server to shut down.")
