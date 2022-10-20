@@ -610,7 +610,7 @@ class Server:
                     self.clients[sock].sendall()
 
             now = time.time()
-            alive_check = [client for client in self.clients.values() if (now - client.alive) > 90 and client.ping_ack == True]
+            alive_check = [client for client in self.clients.values() if (now - client.alive) > 180 and client.ping_ack == True]
             dead_connection = [client for client in self.clients.values() if (now - client.ping) > 15 and client.ping_ack == False]
 
             for client in alive_check:
