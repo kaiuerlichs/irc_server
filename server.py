@@ -595,11 +595,11 @@ class Server:
 
                         else:
                             # No incoming data -> client dead
-                            logger.log_msg("Connection to " + self.host + " at port " + str(self.port) + " has been removed.")
+                            logger.log_msg("Connection to " + self.clients[sock].host + " at port " + str(self.clients[sock].port) + " has been removed.")
                             self.clients[sock].remove_connection("Client connection closed.")
                     except ConnectionResetError:
                         # No incoming data -> client dead
-                        logger.log_msg("Connection to " + self.host + " at port " + str(self.port) + " has been removed.")
+                        logger.log_msg("Connection to " + self.clients[sock].host + " at port " + str(self.clients[sock].port) + " has been removed.")
                         self.clients[sock].remove_connection("Client connection closed.")
             for sock in writable:
                 # Tell writable clients to send all transmissions
