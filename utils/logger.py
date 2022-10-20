@@ -1,3 +1,5 @@
+""" Used to create log messages """
+
 COLOUR_BLUE = "\033[94m"
 COLOUR_CYAN = "\033[96m"
 COLOUR_MAGENTA = "\u001b[35m"
