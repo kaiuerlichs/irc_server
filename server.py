@@ -248,12 +248,12 @@ class ClientConnection:
 
     def run411(self): #ERR_NORECIPIENT
         logger.log_msg("(411) Client sent a message without recipient.")
-        cmd = self.command_format(self.server.prefix(), "411", ":No recipient given")
+        cmd = self.command_format(self.server.prefix(), "411", self.nickname + ":No recipient given")
         self.queue_command(cmd)
 
     def run412(self): #ERR_NOTEXTTOSEND
         logger.log_msg("(412) Client sent a message without text.")
-        cmd = self.command_format(self.server.prefix(), "412", ":No text to send")
+        cmd = self.command_format(self.server.prefix(), "412", self.nickname + ":No text to send")
         self.queue_command(cmd)
 
     def run421(self, command): #RPL_UNKNOWNCOMMAND
@@ -290,12 +290,12 @@ class ClientConnection:
 
     def run461(self): #ERR_NEEDMOREPARAMS
         logger.log_msg("(461) Client command is missing parameters.")
-        cmd = self.command_format(self.server.prefix(),"461", ":Not enough parameters")
+        cmd = self.command_format(self.server.prefix(),"461", self.nickname + ":Not enough parameters")
         self.queue_command(cmd)
         
     def run462(self): #ERR ALREADYREGISTERED
         logger.log_msg("(462) Registered client attempted registration.")
-        cmd = self.command_format(self.server.prefix(), "462", ":Unauthorized command (already registered)")
+        cmd = self.command_format(self.server.prefix(), "462", self.nickname + ":Unauthorized command (already registered)")
         self.queue_command(cmd)
 
     def runJOIN(self, channel): #JOIN
