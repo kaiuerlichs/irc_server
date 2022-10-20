@@ -155,8 +155,11 @@ class ClientConnection:
             del self.server.clients[self.socket]
 
         # Shutdown and close socket
-        self.socket.shutdown(socket.SHUT_RDWR)
-        self.socket.close()
+        try:
+            self.socket.shutdown(socket.SHUT_RDWR)
+            self.socket.close()
+        except:
+            pass
 
 
     def refuse_connection(self):
