@@ -522,13 +522,18 @@ class Server:
 
                 else:
                     # Receive data from existing connection
-                    data = sock.recv(1024)
+                    try:
+                        data = sock.recv(1024)
 
-                    if data:
-                        # Handle incoming data
-                        self.clients[sock].handle_incoming(data)
+                        if data:
+                            # Handle incoming data
+                            self.clients[sock].handle_incoming(data)
 
-                    else:
+                        else:
+                            # No incoming data -> client dead
+                            logger.log_msg("Connection to " + self.host + " at port " + str(self.port) + " has been removed.")
+                            self.clients[sock].remove_connection("Client connection closed.")
+                    except ConnectionResetError:
                         # No incoming data -> client dead
                         logger.log_msg("Connection to " + self.host + " at port " + str(self.port) + " has been removed.")
                         self.clients[sock].remove_connection("Client connection closed.")
